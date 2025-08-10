@@ -13,7 +13,7 @@ function formatAmount(rawBigInt, decimals) {
 
 (async () => {
   // 固定配置
-  const RPC_URL = 'sol-mainnet-url'; 
+  const RPC_URL = 'https://api.mainnet-beta.solana.com'; 
   const MINT_ADDRESS = '7KTfgLY1DCMfLTbGroQUCLXxo4rTHzVcr2ECg4hW1bmH';
   const OWNER_ADDRESS = '7urVGPCw43dpZgWJUvp2SuXZuAm3tt5iDGxNBK6tC1fx';
 
