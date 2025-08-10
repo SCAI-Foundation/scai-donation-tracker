@@ -19,9 +19,9 @@ const {
 
 (async () => {
   // —— 配置区 ——
-  const RPC_ENDPOINT = 'rpc';
-  const PAYER_KEYPAIR_PATH = 'keypair.json';
-  const MINT_ADDRESS = '5mRMA7s7VQRnEEnf2NfPpvSTmvZ4vdkZuNamGg7RUovc';
+  const RPC_ENDPOINT = 'url';
+  const PAYER_KEYPAIR_PATH = '/Users/wangenkai/.config/solana/id.json';
+  const MINT_ADDRESS = '7KTfgLY1DCMfLTbGroQUCLXxo4rTHzVcr2ECg4hW1bmH';
   const JSON_PATH = path.resolve(__dirname, 'scai_donation_google_data.json');
   // ————————
 
@@ -39,65 +39,81 @@ const {
   const scale = BigInt(10) ** BigInt(DECIMALS);
 
   // 3) 读取 JSON 数据
-  const records = JSON.parse(fs.readFileSync(JSON_PATH, 'utf-8'));
+const records = JSON.parse(fs.readFileSync(JSON_PATH, 'utf-8'));
 
-  // 4) 对每条记录，打包创建 ATA + 转账 指令到一个 Transaction
-  for (const rec of records) {
-    const raw = parseFloat(rec.Amount);
-    if (isNaN(raw)) {
-      console.warn(`⚠️ 跳过无效 Amount: ${rec.Amount}`);
-      continue;
-    }
-    const amount = BigInt(Math.round(raw * Number(scale)));
-    const recipient = new PublicKey(rec.Sender);
+// 3.1 先统计总 amount
+let totalAmount = BigInt(0);
+for (const rec of records) {
+  const raw = parseFloat(rec.Amount);
+  if (isNaN(raw)) {
+    console.warn(`⚠️ 跳过无效 Amount: ${rec.Amount}`);
+    continue;
+  }
+  const amount = BigInt(Math.round(raw * Number(scale)));
 
-    // 派生 ATA 地址（不发交易）
-    const recipientAta = await getAssociatedTokenAddress(
-      mintPubkey,
-      recipient,
-      false,                // allowOwnerOffCurve
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
-    );
+  // console.log(`💰 数量（最小单位）= ${amount}`);
+  totalAmount += amount;
+}
 
-    // 检查 ATA 是否已存在
-    const ataInfo = await connection.getAccountInfo(recipientAta);
+console.log(`💰 总数量（最小单位）= ${totalAmount}`);
+console.log(`💰 总数量（带小数）= ${Number(totalAmount) / Number(scale)}`);
 
-    // 新建 Transaction，以 payer 为手续费支付者
-    const tx = new Transaction();
+// 4) 再发放
+for (const rec of records) {
+  const raw = parseFloat(rec.Amount);
+  if (isNaN(raw)) {
+    console.warn(`⚠️ 跳过无效 Amount: ${rec.Amount}`);
+    continue;
+  }
+  const amount = BigInt(Math.round(raw * Number(scale)));
+  const recipient = new PublicKey(rec.Sender);
 
-    // 如果 ATA 不存在，则先创建它
-    if (!ataInfo) {
-      tx.add(
-        createAssociatedTokenAccountInstruction(
-          payer.publicKey,         // payer
-          recipientAta,            // ata to create
-          recipient,               // owner of the ata
-          mintPubkey,              // mint
-          TOKEN_PROGRAM_ID,
-          ASSOCIATED_TOKEN_PROGRAM_ID
-        )
-      );
-    }
+  const recipientAta = await getAssociatedTokenAddress(
+    mintPubkey,
+    recipient,
+    false,
+    TOKEN_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
 
-    // 添加转账指令
+  const ataInfo = await connection.getAccountInfo(recipientAta);
+
+  const tx = new Transaction();
+
+  if (!ataInfo) {
     tx.add(
-      createTransferInstruction(
-        /* source      */ await getAssociatedTokenAddress(mintPubkey, payer.publicKey),
-        /* destination */ recipientAta,
-        /* owner       */ payer.publicKey,
-        /* amount      */ amount,
-        /* signers     */ [],
-        TOKEN_PROGRAM_ID
+      createAssociatedTokenAccountInstruction(
+        payer.publicKey,
+        recipientAta,
+        recipient,
+        mintPubkey,
+        TOKEN_PROGRAM_ID,
+        ASSOCIATED_TOKEN_PROGRAM_ID
       )
     );
-
-    // 发送并确认
-    const sig = await sendAndConfirmTransaction(connection, tx, [payer], {
-      commitment: 'confirmed',
-    });
-    console.log(`✅ ${rec.Amount} → ${rec.Sender} @ ${sig}`);
   }
+
+  tx.add(
+    createTransferInstruction(
+      await getAssociatedTokenAddress(mintPubkey, payer.publicKey),
+      recipientAta,
+      payer.publicKey,
+      amount,
+      [],
+      TOKEN_PROGRAM_ID
+    )
+  );
+
+  const sig = await sendAndConfirmTransaction(connection, tx, [payer], {
+    commitment: 'finalized',
+  });
+  console.log(`✅ ${rec.Amount} → ${rec.Sender} @ ${sig}`);
+  await sleep(2000);
+}
 
   console.log('🚀 All done.');
 })();
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
